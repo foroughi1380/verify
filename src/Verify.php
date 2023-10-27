@@ -20,7 +20,7 @@ class Verify
     public function request(string $receiver, string $method = null)
     {
         VerifyLog::where('created_at', '<', now()->subDay())->delete();
-        $lastestLog = VerifyLog::where('ip', request()->ip())->orWhere('receiver', $receiver)->latest()->first();
+        $lastestLog = VerifyLog::where('ip', self::realIp())->orWhere('receiver', $receiver)->latest()->first();
         if ($lastestLog) {
             if ($lastestLog->created_at->gt(now()->subSeconds(config('verify.resend_delay')))) {
                 return [
@@ -33,7 +33,7 @@ class Verify
             }
             if (VerifyLog::where('created_at', '>', now()->subHour())
                 ->where(function ($query) use ($receiver) {
-                    $query->where('ip', request()->ip())->orWhere('receiver', $receiver);
+                    $query->where('ip', self::realIp())->orWhere('receiver', $receiver);
                 })->count() > config('verify.max_resends.per_ip') ||
                 (is_array(session('sanjab_verify')) && count(array_filter(session('sanjab_verify'), function ($time) {
                     return $time > time() - 3600;
@@ -49,7 +49,7 @@ class Verify
         $code = $this->generate();
         if ($verifyMethod->send($receiver, $code)) {
             VerifyLog::create([
-                'ip'       => request()->ip(),
+                'ip'       => self::realIp(),
                 'agent'    => request()->userAgent(),
                 'receiver' => $receiver,
                 'code'     => $code,
@@ -84,7 +84,7 @@ class Verify
                 'message' => trans('verify::verify.code_attempt_limited', ['count' => config('verify.max_attemps')]),
             ];
         }
-        if ($log->ip != request()->ip() || $log->agent != request()->userAgent()) {
+        if ($log->ip != self::realIp() || $log->agent != request()->userAgent()) {
             return [
                 'success' => false,
                 'message' => trans('verify::verify.code_is_not_yours'),
@@ -132,5 +132,14 @@ class Verify
             throw new Exception("Generated code is empty because of wrong configuaration.");
         }
         return str_shuffle($string);
+    }
+
+    private static function realIp(){
+        if (request()->hasHeader("AR_REAL_IP") && (!empty(request()->header("AR_REAL_IP"))) ){
+            return request()->header("AR_REAL_IP");
+        }else if (request()->hasHeader("X-Forwarded-For") && (!empty(request()->header("X-Forwarded-For")))){
+            return request()->header("X-Forwarded-For");
+        }
+        return request()->ip();
     }
 }
